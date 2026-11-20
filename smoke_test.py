@@ -93,6 +93,30 @@ with TestClient(app) as client:
     print("payload without token")
     check("payload 401", client.post("/v1/payload").status_code == 401)
 
+    print("payload publish")
+    release = {
+        "url": "https://github.com/o/r/releases/download/t/rank1-overlay-9.9.9.bin",
+        "sha256": "a" * 64,
+        "key_b64": "k" * 44,
+        "nonce_b64": "n" * 16,
+        "size": 1234,
+        "version": "9.9.9",
+    }
+    r = client.post("/v1/admin/payload", headers=ADMIN, json=release)
+    check("publish 200", r.status_code == 200, r.text[:160])
+    check("publish overrides env", client.post("/v1/payload", headers=bearer).json()["version"] == "9.9.9")
+    check("publish listed", client.get("/v1/admin/payloads", headers=ADMIN).json()["items"][0]["version"] == "9.9.9")
+    check("publish rejected without secret", client.post("/v1/admin/payload", json=release).status_code == 401)
+
+    r2 = dict(release, version="9.9.10")
+    client.post("/v1/admin/payload", headers=ADMIN, json=r2)
+    items = client.get("/v1/admin/payloads", headers=ADMIN).json()["items"]
+    check("only one active", sum(1 for i in items if i["active"]) == 1, str([i["active"] for i in items]))
+    check("newest wins", client.post("/v1/payload", headers=bearer).json()["version"] == "9.9.10")
+
+    check("payload-disable 200", client.post("/v1/admin/payload-disable", headers=ADMIN).status_code == 200)
+    check("env fallback after disable", client.post("/v1/payload", headers=bearer).json()["version"] == "1.0.0")
+
     print("keys list")
     r = client.get("/v1/admin/keys", headers=ADMIN)
     check("list 200", r.status_code == 200)

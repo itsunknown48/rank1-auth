@@ -35,6 +35,29 @@ class PayloadResponse(BaseModel):
     expires_at: int = 0
 
 
+class PublishPayloadRequest(BaseModel):
+    url: str = Field(default="", max_length=1024)
+    sha256: str = Field(min_length=64, max_length=64)
+    key_b64: str = Field(min_length=40, max_length=64)
+    nonce_b64: str = Field(min_length=16, max_length=32)
+    size: int = Field(default=0, ge=0)
+    version: str = Field(default="", max_length=32)
+
+
+class PayloadReleaseOut(BaseModel):
+    id: int
+    version: str
+    url: str
+    sha256: str
+    size: int
+    active: bool
+    created_at: str
+
+
+class PayloadReleaseList(BaseModel):
+    items: list[PayloadReleaseOut]
+
+
 class IssueRequest(BaseModel):
     tier: str = Field(default="1d", max_length=8)
     count: int = Field(default=1, ge=1, le=100)

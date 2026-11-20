@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from ..db import Audit, LicenseKey, utcnow
+from ..db import Audit, LicenseKey, PayloadRelease, utcnow
 from ..deps import get_db, remaining_seconds, require_admin
 from ..keyformat import TIERS, generate, normalize, prefix_of, tier_days
 from ..schemas import (
@@ -18,6 +18,9 @@ from ..schemas import (
     KeyOut,
     KillSwitchRequest,
     OkResponse,
+    PayloadReleaseList,
+    PayloadReleaseOut,
+    PublishPayloadRequest,
     ResetHwidRequest,
     RevokeRequest,
 )
@@ -295,3 +298,60 @@ def purge_expired(db: Session = Depends(get_db)) -> OkResponse:
     _audit(db, "purge", "", f"{len(rows)} removed")
     db.commit()
     return OkResponse(detail=f"{len(rows)} removed")
+
+
+@router.post("/payload", response_model=PayloadReleaseOut)
+def publish_payload(body: PublishPayloadRequest, db: Session = Depends(get_db)) -> PayloadReleaseOut:
+    for old in db.scalars(select(PayloadRelease).where(PayloadRelease.active.is_(True))).all():
+        old.active = False
+    release = PayloadRelease(
+        version=body.version,
+        url=body.url,
+        sha256=body.sha256.lower(),
+        key_b64=body.key_b64,
+        nonce_b64=body.nonce_b64,
+        size=body.size,
+        active=True,
+    )
+    db.add(release)
+    _audit(db, "payload", "", f"{body.version} {body.sha256[:12]}")
+    db.commit()
+    db.refresh(release)
+    return PayloadReleaseOut(
+        id=release.id,
+        version=release.version,
+        url=release.url,
+        sha256=release.sha256,
+        size=release.size,
+        active=release.active,
+        created_at=_iso(release.created_at),
+    )
+
+
+@router.get("/payloads", response_model=PayloadReleaseList)
+def payloads(limit: int = Query(default=20, ge=1, le=100), db: Session = Depends(get_db)) -> PayloadReleaseList:
+    rows = db.scalars(select(PayloadRelease).order_by(PayloadRelease.id.desc()).limit(limit)).all()
+    return PayloadReleaseList(
+        items=[
+            PayloadReleaseOut(
+                id=r.id,
+                version=r.version,
+                url=r.url,
+                sha256=r.sha256,
+                size=r.size,
+                active=r.active,
+                created_at=_iso(r.created_at),
+            )
+            for r in rows
+        ]
+    )
+
+
+@router.post("/payload-disable", response_model=OkResponse)
+def payload_disable(db: Session = Depends(get_db)) -> OkResponse:
+    rows = db.scalars(select(PayloadRelease).where(PayloadRelease.active.is_(True))).all()
+    for r in rows:
+        r.active = False
+    _audit(db, "payload-disable", "", f"{len(rows)} off")
+    db.commit()
+    return OkResponse(detail=f"{len(rows)} disabled")

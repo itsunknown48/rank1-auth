@@ -29,7 +29,11 @@ smoke_test.py        full endpoint walk against SQLite
 | POST | `/v1/auth` | none | `{key, hwid, version}` -> token |
 | POST | `/v1/heartbeat` | bearer | rotate token, keep session alive |
 | POST | `/v1/revoke-self` | bearer | burn the calling key |
-| POST | `/v1/payload` | bearer | AES key + CDN url for the overlay blob |
+| POST | `/v1/payload` | bearer | AES key + url for the sealed overlay |
+| GET | `/v1/payload/blob` | bearer | backend-hosted sealed overlay |
+| POST | `/v1/admin/payload` | admin | register a sealed release |
+| GET | `/v1/admin/payloads` | admin | release history |
+| POST | `/v1/admin/payload-disable` | admin | stop serving a payload |
 | POST | `/v1/admin/issue` | admin | `{tier, count, note}` -> plaintext keys |
 | GET | `/v1/admin/keys` | admin | `status`, `q`, `limit`, `offset` |
 | POST | `/v1/admin/revoke` | admin | `{key_prefix, reason}` |
@@ -91,13 +95,12 @@ python smoke_test.py            # 40 checks, sqlite, no network
 ```bash
 railway init
 railway variables set DATABASE_URL="postgresql://..." REDIS_URL="rediss://..." \
-  ADMIN_SECRET="..." ED25519_SEED_B64="..." PAYLOAD_URL="..." \
-  PAYLOAD_SHA256="..." PAYLOAD_KEY_B64="..." PAYLOAD_NONCE_B64="..." PAYLOAD_VERSION="1.0.0"
+  ADMIN_SECRET="..." JWT_SEED_B64="..." \
+  PUBLIC_BASE_URL="https://rank1-auth-production.up.railway.app"
 railway up
 ```
 
 `railway.json` pins the Nixpacks build, `uvicorn` start, and `/health` check.
-Railway never serves the payload — only the 200-byte AES key response.
 
 ## Redis keys
 
@@ -111,21 +114,19 @@ single local dev instance, useless across Railway replicas.
 
 ## Payload publishing
 
-```python
-# one-off, run where the plaintext overlay lives
-import base64, hashlib, os
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+Sealed with AES-256-GCM, registered in the DB so it can rotate without a redeploy.
 
-key, nonce = os.urandom(32), os.urandom(12)
-blob = open("Rank1Overlay.exe", "rb").read()
-sealed = AESGCM(key).encrypt(nonce, blob, b"rank1-overlay")
-open("rank1-overlay.bin", "wb").write(sealed)
+```bash
+# backend serves the blob itself (rank1-overlay.bin committed next to app/)
+python tools/publish_payload.py ../../1_run/Rank1Overlay.exe --local --version 1.0.0
 
-print("PAYLOAD_SHA256=" + hashlib.sha256(sealed).hexdigest())
-print("PAYLOAD_KEY_B64=" + base64.b64encode(key).decode())
-print("PAYLOAD_NONCE_B64=" + base64.b64encode(nonce).decode())
+# or a GitHub Release asset
+GITHUB_TOKEN=ghp_x GITHUB_REPO=you/rank1-release \
+RANK1_API=https://rank1-auth-production.up.railway.app ADMIN_SECRET=... \
+python tools/publish_payload.py ../../1_run/Rank1Overlay.exe --version 1.0.1
 ```
 
-Upload `rank1-overlay.bin` to a GitHub Release (public asset is safe — it is
-AES-256-GCM sealed), set `PAYLOAD_URL` to the release asset URL. Rotate key+nonce
-and re-upload whenever the overlay changes.
+`POST /v1/admin/payload` deactivates every older release, so `/v1/payload` always
+returns the newest one. `POST /v1/admin/payload-disable` serves nothing and the loader
+fails closed. The encrypted blob is safe to publish anywhere — without the key and
+nonce from a live session it is noise.

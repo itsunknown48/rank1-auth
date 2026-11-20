@@ -46,6 +46,20 @@ class Audit(Base):
     detail: Mapped[str] = mapped_column(String(240), default="")
 
 
+class PayloadRelease(Base):
+    __tablename__ = "payloads"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    version: Mapped[str] = mapped_column(String(32), default="")
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    key_b64: Mapped[str] = mapped_column(String(64), nullable=False)
+    nonce_b64: Mapped[str] = mapped_column(String(32), nullable=False)
+    size: Mapped[int] = mapped_column(Integer, default=0)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 Index("ix_keys_expires", LicenseKey.expires_at)
 
 
