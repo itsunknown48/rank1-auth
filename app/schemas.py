@@ -66,6 +66,7 @@ class KeyOut(BaseModel):
     use_count: int
     seconds_left: int
     status: str
+    revealable: bool = False
 
 
 class KeyList(BaseModel):

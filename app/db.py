@@ -23,6 +23,7 @@ class LicenseKey(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     prefix: Mapped[str] = mapped_column(String(16), unique=True, index=True)
     key_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    key_sealed: Mapped[str | None] = mapped_column(Text, nullable=True)
     tier: Mapped[str] = mapped_column(String(8), nullable=False)
     note: Mapped[str] = mapped_column(String(120), default="")
     hwid: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)

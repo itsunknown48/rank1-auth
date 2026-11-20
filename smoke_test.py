@@ -113,6 +113,12 @@ with TestClient(app) as client:
     r = client.post("/v1/admin/extend", json={"key_prefix": handle, "days": 5}, headers=ADMIN)
     check("extend 200", r.status_code == 200, r.text[:120])
 
+    print("reveal")
+    r = client.get(f"/v1/admin/reveal?key_prefix={handle}", headers=ADMIN)
+    check("reveal 200", r.status_code == 200, r.text[:120])
+    check("reveal returns the exact key", r.json().get("key") == plain, str(r.json())[:80])
+    check("reveal rejected without secret", client.get(f"/v1/admin/reveal?key_prefix={handle}").status_code == 401)
+
     print("revoke")
     r = client.post("/v1/auth", json={"key": plain, "hwid": HWID})
     check("re-auth 200", r.status_code == 200, r.text[:120])

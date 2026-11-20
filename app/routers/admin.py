@@ -21,7 +21,7 @@ from ..schemas import (
     ResetHwidRequest,
     RevokeRequest,
 )
-from ..security import hash_key, kill_switch_on, set_kill_switch
+from ..security import hash_key, kill_switch_on, open_key, seal_key, set_kill_switch
 
 router = APIRouter(prefix="/v1/admin", tags=["admin"], dependencies=[Depends(require_admin)])
 
@@ -59,6 +59,7 @@ def _out(record: LicenseKey) -> KeyOut:
         use_count=record.use_count or 0,
         seconds_left=remaining_seconds(record),
         status=_status(record),
+        revealable=bool(record.key_sealed),
     )
 
 
@@ -92,6 +93,7 @@ def issue(body: IssueRequest, db: Session = Depends(get_db)) -> IssueResponse:
         record = LicenseKey(
             prefix=handle,
             key_hash=hash_key(normalize(plain)),
+            key_sealed=seal_key(plain),
             tier=tier,
             note=body.note or "",
             created_at=now,
@@ -140,6 +142,22 @@ def list_keys(
         stmt.order_by(LicenseKey.created_at.desc()).limit(limit).offset(offset)
     ).all()
     return KeyList(total=int(total), items=[_out(r) for r in rows])
+
+
+@router.get("/reveal")
+def reveal(
+    key_prefix: str = Query(min_length=9, max_length=16),
+    db: Session = Depends(get_db),
+) -> dict:
+    record = _by_prefix(db, key_prefix)
+    if not record.key_sealed:
+        raise HTTPException(status_code=404, detail="this key was issued before reveal existed")
+    plain = open_key(record.key_sealed)
+    if not plain:
+        raise HTTPException(status_code=409, detail="cannot decrypt, signing seed changed")
+    _audit(db, "reveal", record.id, record.prefix)
+    db.commit()
+    return {"key": plain, "key_prefix": record.prefix}
 
 
 @router.post("/revoke", response_model=OkResponse)

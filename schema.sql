@@ -2,6 +2,7 @@ create table if not exists keys (
     id            varchar(36) primary key,
     prefix        varchar(16) not null unique,
     key_hash      text        not null,
+    key_sealed    text,
     tier          varchar(8)  not null,
     note          varchar(120) not null default '',
     hwid          varchar(64),

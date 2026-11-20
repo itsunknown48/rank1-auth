@@ -110,6 +110,29 @@ def read_token(token: str) -> dict[str, Any] | None:
         return None
 
 
+def seal_key(raw: str) -> str:
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    nonce = os.urandom(12)
+    sealed = AESGCM(_seal_bytes()).encrypt(nonce, raw.encode("utf-8"), b"rank1-key")
+    return base64.b64encode(nonce + sealed).decode()
+
+
+def open_key(blob: str) -> str:
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    try:
+        raw = base64.b64decode(blob)
+        plain = AESGCM(_seal_bytes()).decrypt(raw[:12], raw[12:], b"rank1-key")
+        return plain.decode("utf-8")
+    except Exception:
+        return ""
+
+
+def _seal_bytes() -> bytes:
+    return hashlib.sha256(_seed() + b"|keyseal|v1").digest()
+
+
 class _Memory:
     def __init__(self) -> None:
         self._data: dict[str, tuple[str, float]] = {}
