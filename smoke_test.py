@@ -117,6 +117,80 @@ with TestClient(app) as client:
     check("payload-disable 200", client.post("/v1/admin/payload-disable", headers=ADMIN).status_code == 200)
     check("env fallback after disable", client.post("/v1/payload", headers=bearer).json()["version"] == "1.0.0")
 
+    print("loader release")
+    os.environ.setdefault("LOADER_BLOB_PATH", "smoke-loader.exe")
+    r = client.post(
+        "/v1/admin/loader",
+        headers=ADMIN,
+        json={"version": "9.9.9", "url": "", "sha256": "b" * 64, "size": 42, "notes": "smoke", "mandatory": True},
+    )
+    check("loader publish 200", r.status_code == 200, r.text[:160])
+    v = client.get("/v1/version", headers=bearer)
+    check("version 200", v.status_code == 200, v.text[:120])
+    check("version value", v.json()["version"] == "9.9.9", v.json()["version"])
+    check("version mandatory", v.json()["mandatory"] is True)
+    check("version url fallback", v.json()["url"] == "blob", v.json()["url"])
+    check("version needs token", client.get("/v1/version").status_code == 401)
+
+    blob = b"MZ" + bytes(range(64)) * 8
+    up = client.post(
+        "/v1/admin/loader-upload?version=9.9.10&mandatory=false",
+        headers={**ADMIN, "Content-Type": "application/octet-stream"},
+        content=blob,
+    )
+    check("upload 200", up.status_code == 200, up.text[:160])
+    check("upload size", up.json()["size"] == len(blob), str(up.json()["size"]))
+    check("upload sha", up.json()["sha256"] == __import__("hashlib").sha256(blob).hexdigest())
+    check("version now 9.9.10", client.get("/v1/version", headers=bearer).json()["version"] == "9.9.10")
+    served = client.get("/v1/loader/blob", headers=bearer)
+    check("blob 200", served.status_code == 200, str(served.status_code))
+    check("blob bytes", served.content == blob, str(len(served.content)))
+    check("blob needs token", client.get("/v1/loader/blob").status_code == 401)
+    check("loaders listed", client.get("/v1/admin/loaders", headers=ADMIN).json()["items"][0]["version"] == "9.9.10")
+    check("only one active loader", sum(1 for i in client.get("/v1/admin/loaders", headers=ADMIN).json()["items"] if i["active"]) == 1)
+    check("loader-disable 200", client.post("/v1/admin/loader-disable", headers=ADMIN).status_code == 200)
+    check("version empty after disable", client.get("/v1/version", headers=bearer).json()["version"] == "", "settings fallback")
+    check("upload rejected without secret", client.post("/v1/admin/loader-upload?version=1.0.1", content=blob).status_code == 401)
+
+    print("request signing")
+    import hashlib as _h
+    import hmac as _hm
+    import json as _json
+    import time as _t
+
+    from app.config import get_settings as _settings
+
+    secret = "smoke-sign-secret"
+    os.environ["SIGN_SECRET"] = secret
+    _settings.cache_clear()
+    raw = _json.dumps({"key": plain, "hwid": HWID, "version": "1.0.0"}, separators=(",", ":")).encode()
+    hdrs = {"Content-Type": "application/json"}
+    check("unsigned rejected", client.post("/v1/auth", content=raw, headers=hdrs).status_code == 401)
+
+    ts = str(int(_t.time()))
+    mac = _hm.new(
+        secret.encode(), f"{ts}\nPOST\n/v1/auth\n".encode() + _h.sha256(raw).hexdigest().encode(), _h.sha256
+    ).hexdigest()
+    check(
+        "signed accepted",
+        client.post("/v1/auth", content=raw, headers={**hdrs, "X-R1-Ts": ts, "X-R1-Sig": mac}).status_code == 200,
+    )
+    old_ts = str(int(_t.time()) - 900)
+    stale = _hm.new(
+        secret.encode(), f"{old_ts}\nPOST\n/v1/auth\n".encode() + _h.sha256(raw).hexdigest().encode(), _h.sha256
+    ).hexdigest()
+    check(
+        "stale rejected",
+        client.post("/v1/auth", content=raw, headers={**hdrs, "X-R1-Ts": old_ts, "X-R1-Sig": stale}).status_code == 401,
+    )
+    check(
+        "bad mac rejected",
+        client.post("/v1/auth", content=raw, headers={**hdrs, "X-R1-Ts": ts, "X-R1-Sig": "0" * 64}).status_code == 401,
+    )
+    del os.environ["SIGN_SECRET"]
+    _settings.cache_clear()
+    check("unsigned ok again", client.post("/v1/auth", content=raw, headers=hdrs).status_code == 200)
+
     print("keys list")
     r = client.get("/v1/admin/keys", headers=ADMIN)
     check("list 200", r.status_code == 200)

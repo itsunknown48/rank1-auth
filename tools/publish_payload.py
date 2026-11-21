@@ -102,7 +102,20 @@ def main() -> int:
         help="serve the blob from the backend itself (no GitHub)",
     )
     ap.add_argument("--out", type=Path, default=None)
+    ap.add_argument("--descriptor", type=Path, default=None, help="write the sealed descriptor json")
+    ap.add_argument("--register-only", type=Path, default=None, help="register an existing descriptor json")
     args = ap.parse_args()
+
+    secret = os.environ.get("ADMIN_SECRET", "")
+    api = args.api or os.environ.get("RANK1_API", "")
+
+    if args.register_only:
+        descriptor = json.loads(args.register_only.read_text())
+        if not secret or not api:
+            raise SystemExit("RANK1_API / ADMIN_SECRET must be set to register")
+        result = register(api, secret, descriptor)
+        print(f"active  release #{result['id']} {result['version']} {result['sha256'][:12]}")
+        return 0
 
     if not args.overlay.is_file():
         raise SystemExit(f"not found: {args.overlay}")
@@ -129,8 +142,10 @@ def main() -> int:
 
     token = os.environ.get("GITHUB_TOKEN", "")
     tag = args.tag or f"rank1-overlay-{version}"
-    secret = os.environ.get("ADMIN_SECRET", "")
-    api = args.api or os.environ.get("RANK1_API", "")
+
+    if args.descriptor:
+        args.descriptor.write_text(json.dumps(descriptor, indent=2))
+        print(f"desc    {args.descriptor}")
 
     if args.local:
         print(f"blob    {out}")

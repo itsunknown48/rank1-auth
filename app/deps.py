@@ -37,6 +37,34 @@ def require_admin(x_admin_secret: str = Header(default="")) -> str:
     return "admin"
 
 
+async def verify_signature(
+    request: Request,
+    x_r1_ts: str = Header(default=""),
+    x_r1_sig: str = Header(default=""),
+) -> None:
+    import hashlib
+
+    expected = get_settings().sign_secret
+    if not expected:
+        return
+    if not x_r1_ts or not x_r1_sig:
+        raise HTTPException(status_code=401, detail="unsigned request")
+    try:
+        ts = int(x_r1_ts)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="bad timestamp")
+    if abs(int(time.time()) - ts) > 300:
+        raise HTTPException(status_code=401, detail="stale request")
+
+    body = await request.body()
+    canonical = f"{ts}\n{request.method}\n{request.url.path}\n"
+    if body:
+        canonical += hashlib.sha256(body).hexdigest()
+    mac = hmac.new(expected.encode(), canonical.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(mac, x_r1_sig.lower()):
+        raise HTTPException(status_code=401, detail="bad signature")
+
+
 class Session_:
     __slots__ = ("token", "claims", "key")
 

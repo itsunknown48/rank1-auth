@@ -58,6 +58,40 @@ class PayloadReleaseList(BaseModel):
     items: list[PayloadReleaseOut]
 
 
+class PublishLoaderRequest(BaseModel):
+    version: str = Field(min_length=1, max_length=32)
+    url: str = Field(default="", max_length=1024)
+    sha256: str = Field(min_length=64, max_length=64)
+    size: int = Field(default=0, ge=0)
+    notes: str = Field(default="", max_length=240)
+    mandatory: bool = False
+
+
+class LoaderReleaseOut(BaseModel):
+    id: int
+    version: str
+    url: str
+    sha256: str
+    size: int
+    notes: str
+    mandatory: bool
+    active: bool
+    created_at: str
+
+
+class LoaderReleaseList(BaseModel):
+    items: list[LoaderReleaseOut]
+
+
+class VersionResponse(BaseModel):
+    version: str
+    url: str
+    sha256: str
+    size: int
+    mandatory: bool
+    server_time: int
+
+
 class IssueRequest(BaseModel):
     tier: str = Field(default="1d", max_length=8)
     count: int = Field(default=1, ge=1, le=100)

@@ -11,14 +11,20 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..db import PayloadRelease
 from ..deps import Session_ as LiveSession
-from ..deps import get_db, require_session
+from ..deps import get_db, require_session, verify_signature
 from ..schemas import PayloadResponse
 
-router = APIRouter(prefix="/v1", tags=["payload"])
+router = APIRouter(prefix="/v1", tags=["payload"], dependencies=[Depends(verify_signature)])
 
 
-def _blob_path() -> Path:
-    return Path(os.environ.get("PAYLOAD_BLOB_PATH", "rank1-overlay.bin"))
+def _blob_path(version: str = "") -> Path:
+    default = Path(os.environ.get("PAYLOAD_BLOB_PATH", "rank1-overlay.bin"))
+    if version:
+        safe = "".join(c for c in version if c.isalnum() or c in "._-")
+        candidate = default.parent / f"rank1-overlay-{safe}.bin"
+        if safe and candidate.is_file():
+            return candidate
+    return default
 
 
 def _local_url() -> str:
@@ -66,8 +72,14 @@ def payload(
 
 
 @router.get("/payload/blob")
-def payload_blob(session: LiveSession = Depends(require_session)) -> FileResponse:
-    path = _blob_path()
+def payload_blob(session: LiveSession = Depends(require_session), db: Session = Depends(get_db)) -> FileResponse:
+    release = db.scalars(
+        select(PayloadRelease)
+        .where(PayloadRelease.active.is_(True))
+        .order_by(PayloadRelease.id.desc())
+        .limit(1)
+    ).first()
+    path = _blob_path(release.version if release is not None else "")
     if not path.is_file():
         raise HTTPException(status_code=404, detail="payload blob not staged")
     return FileResponse(path, media_type="application/octet-stream", filename=path.name)

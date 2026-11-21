@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./rank1.db"
     redis_url: str = ""
     admin_secret: str = ""
+    sign_secret: str = ""
     token_ttl_seconds: int = 600
     hwid_lock: bool = True
     payload_url: str = ""
@@ -18,6 +19,9 @@ class Settings(BaseSettings):
     payload_nonce_b64: str = ""
     jwt_seed_b64: str = ""
     public_base_url: str = ""
+    loader_version: str = ""
+    loader_url: str = ""
+    loader_sha256: str = ""
     allow_register_default: bool = False
     log_level: str = "INFO"
 

@@ -9,12 +9,12 @@ from sqlalchemy.orm import Session
 
 from ..db import LicenseKey, utcnow
 from ..deps import Session_ as LiveSession
-from ..deps import client_ip, get_db, remaining_seconds, require_session
+from ..deps import client_ip, get_db, remaining_seconds, require_session, verify_signature
 from ..keyformat import is_well_formed, normalize, prefix_of
 from ..schemas import AuthRequest, AuthResponse, HeartbeatResponse, OkResponse
 from ..security import drop_session, issue_token, kill_switch_on, mark_session, read_token, verify_key
 
-router = APIRouter(prefix="/v1", tags=["auth"])
+router = APIRouter(prefix="/v1", tags=["auth"], dependencies=[Depends(verify_signature)])
 
 
 def _iso(dt) -> str:

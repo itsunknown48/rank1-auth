@@ -60,6 +60,20 @@ class PayloadRelease(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class LoaderRelease(Base):
+    __tablename__ = "loaders"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    version: Mapped[str] = mapped_column(String(32), nullable=False)
+    url: Mapped[str] = mapped_column(Text, default="")
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    size: Mapped[int] = mapped_column(Integer, default=0)
+    notes: Mapped[str] = mapped_column(String(240), default="")
+    mandatory: Mapped[bool] = mapped_column(Boolean, default=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 Index("ix_keys_expires", LicenseKey.expires_at)
 
 

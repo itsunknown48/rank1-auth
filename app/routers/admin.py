@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from ..db import Audit, LicenseKey, PayloadRelease, utcnow
+from ..db import Audit, LicenseKey, LoaderRelease, PayloadRelease, utcnow
 from ..deps import get_db, remaining_seconds, require_admin
 from ..keyformat import TIERS, generate, normalize, prefix_of, tier_days
 from ..schemas import (
@@ -17,9 +17,12 @@ from ..schemas import (
     KeyList,
     KeyOut,
     KillSwitchRequest,
+    LoaderReleaseList,
+    LoaderReleaseOut,
     OkResponse,
     PayloadReleaseList,
     PayloadReleaseOut,
+    PublishLoaderRequest,
     PublishPayloadRequest,
     ResetHwidRequest,
     RevokeRequest,
@@ -355,3 +358,114 @@ def payload_disable(db: Session = Depends(get_db)) -> OkResponse:
     _audit(db, "payload-disable", "", f"{len(rows)} off")
     db.commit()
     return OkResponse(detail=f"{len(rows)} disabled")
+
+
+@router.post("/loader", response_model=LoaderReleaseOut)
+def publish_loader(body: PublishLoaderRequest, db: Session = Depends(get_db)) -> LoaderReleaseOut:
+    for old in db.scalars(select(LoaderRelease).where(LoaderRelease.active.is_(True))).all():
+        old.active = False
+    release = LoaderRelease(
+        version=body.version,
+        url=body.url,
+        sha256=body.sha256.lower(),
+        size=body.size,
+        notes=body.notes,
+        mandatory=body.mandatory,
+        active=True,
+    )
+    db.add(release)
+    _audit(db, "loader", "", f"{body.version} {body.sha256[:12]}")
+    db.commit()
+    db.refresh(release)
+    return LoaderReleaseOut(
+        id=release.id,
+        version=release.version,
+        url=release.url,
+        sha256=release.sha256,
+        size=release.size,
+        notes=release.notes,
+        mandatory=release.mandatory,
+        active=release.active,
+        created_at=_iso(release.created_at),
+    )
+
+
+@router.post("/loader-upload", response_model=LoaderReleaseOut)
+async def loader_upload(
+    request: Request,
+    version: str = Query(min_length=1, max_length=32),
+    mandatory: bool = Query(default=False),
+    url: str = Query(default="", max_length=1024),
+    db: Session = Depends(get_db),
+) -> LoaderReleaseOut:
+    import hashlib
+    import os
+    from pathlib import Path
+
+    blob = await request.body()
+    if not blob:
+        raise HTTPException(status_code=400, detail="empty upload")
+
+    digest = hashlib.sha256(blob).hexdigest()
+    path = Path(os.environ.get("LOADER_BLOB_PATH", "rank1-loader.exe"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(blob)
+
+    for old in db.scalars(select(LoaderRelease).where(LoaderRelease.active.is_(True))).all():
+        old.active = False
+    release = LoaderRelease(
+        version=version,
+        url=url,
+        sha256=digest,
+        size=len(blob),
+        notes="panel upload",
+        mandatory=mandatory,
+        active=True,
+    )
+    db.add(release)
+    _audit(db, "loader-upload", "", f"{version} {digest[:12]} {len(blob)}")
+    db.commit()
+    db.refresh(release)
+    return LoaderReleaseOut(
+        id=release.id,
+        version=release.version,
+        url=release.url,
+        sha256=release.sha256,
+        size=release.size,
+        notes=release.notes,
+        mandatory=release.mandatory,
+        active=release.active,
+        created_at=_iso(release.created_at),
+    )
+
+
+@router.get("/loaders", response_model=LoaderReleaseList)
+def loaders(limit: int = Query(default=20, ge=1, le=100), db: Session = Depends(get_db)) -> LoaderReleaseList:
+    rows = db.scalars(select(LoaderRelease).order_by(LoaderRelease.id.desc()).limit(limit)).all()
+    return LoaderReleaseList(
+        items=[
+            LoaderReleaseOut(
+                id=r.id,
+                version=r.version,
+                url=r.url,
+                sha256=r.sha256,
+                size=r.size,
+                notes=r.notes,
+                mandatory=r.mandatory,
+                active=r.active,
+                created_at=_iso(r.created_at),
+            )
+            for r in rows
+        ]
+    )
+
+
+@router.post("/loader-disable", response_model=OkResponse)
+def loader_disable(db: Session = Depends(get_db)) -> OkResponse:
+    rows = db.scalars(select(LoaderRelease).where(LoaderRelease.active.is_(True))).all()
+    for r in rows:
+        r.active = False
+    _audit(db, "loader-disable", "", f"{len(rows)} off")
+    db.commit()
+    return OkResponse(detail=f"{len(rows)} disabled")
+

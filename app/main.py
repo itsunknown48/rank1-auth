@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 
 from .config import get_settings
 from .db import init_db
-from .routers import admin, auth, payload
+from .routers import admin, auth, payload, version
 from .schemas import PublicKeyResponse
 from .security import public_key_b64
 
@@ -27,6 +27,7 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(payload.router)
+app.include_router(version.router)
 app.include_router(admin.router)
 
 
